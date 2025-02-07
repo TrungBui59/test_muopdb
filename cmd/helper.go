@@ -12,6 +12,7 @@ import (
 	"os"
 )
 
+
 func readSentences(filename string) ([]string, error) {
 	file, err := os.Open(filename)
 	if err != nil {

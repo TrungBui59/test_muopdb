@@ -12,8 +12,8 @@ import (
 )
 
 var (
-	inputSample = "/home/trungbui/test_muopdb/samples/100_sentence.txt"
-	outputSample = "/home/trungbui/test_muopdb/samples/100_sentence_embedding.gob"
+	inputSample        = "/home/trungbui/test_muopdb/samples/100_sentence.txt"
+	outputSample       = "/home/trungbui/test_muopdb/samples/100_sentence_embedding.gob"
 	embeddingModelName = "text-embedding-004"
 )
 
@@ -27,7 +27,7 @@ func demoGenerateEmbedding(inputSampleFile, outputSampleFile, embeddingModel str
 	embedding, err := generateEmbedding(geminiClient,
 		inputSampleFile,
 		embeddingModel,
-		)
+	)
 
 	if err != nil {
 		return err
@@ -36,90 +36,7 @@ func demoGenerateEmbedding(inputSampleFile, outputSampleFile, embeddingModel str
 	return saveEmbeddings(outputSampleFile, embedding)
 }
 
-func demoInsertEmbedding(cfg configs.Config, outputEmbeddingFile string) error {
-	//Configure logging
-	conn, err := createGRPCClientConn(fmt.Sprintf("%s:%d", cfg.MuopDBConfig.Host, cfg.MuopDBConfig.Port))
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-
-	muopdbClient := muopdbclient.NewClient(conn)
-
-	//// Load the embeddings from the .gob file
-	embeddings, err := loadEmbeddings(outputEmbeddingFile)
-	if err != nil {
-		return err
-	}
-
-	// Insert the embeddings into MuopDB
-	return insertAllDocuments(muopdbClient, "test-collection-1", embeddings)
-}
-func main() {
-	// // Configure logging
-	log.SetFlags(log.LstdFlags | log.Lshortfile)
-
-	cfg, err := configs.NewConfig("")
-	if err != nil {
-		log.Fatalf("Error loading config: %v", err)
-	}
-
-	conn, err := createGRPCClientConn(fmt.Sprintf("%s:%d", cfg.MuopDBConfig.Host, cfg.MuopDBConfig.Port))
-	if err != nil {
-		log.Fatalf("Error creating gRPC client connection: %v", err)
-	}
-	defer conn.Close()
-
-	muopdbClient := muopdbclient.NewClient(conn)
-
-	geminiClient, err := createGeminiClient(cfg)
-	if err != nil {
-		log.Fatalf("Error creating Gemini client: %v", err)
-	}
-
-	query := "Futuristic Cities"
-	queryVector, err := getEmbedding(geminiClient, embeddingModelName, query)
-	if err != nil {
-		log.Fatalf("Error getting embedding: %v", err)
-	}
-
-	// Read back the raw data to print the responses
-	sentences, err := readSentences(inputSample)
-	if err != nil {
-		log.Fatalf("Error reading sentences: %v", err)
-	}
-
-	start := time.Now()
-	searchResponse, err := muopdbClient.Search(context.TODO(), muopdbclient.SearchRequest{
-		CollectionName: "test-collection-1",
-		Vector:         queryVector,
-		TopK:           5,
-		EfConstruction: 100,
-		RecordMetrics:  false,
-		UserIds:        [][]byte{make([]byte, 16)},
-	})
-
-	if err != nil {
-		log.Fatalf("Error searching: %v", err)
-	}
-
-	fmt.Printf("response: %v\n", searchResponse)
-
-	end := time.Now()
-	fmt.Printf("Time taken for search: %v seconds\n", end.Sub(start).Seconds())
-
-	fmt.Printf("Number of results: %d\n", len(searchResponse.DocIds))
-	fmt.Println("================")
-	for _, id := range searchResponse.DocIds {
-		// Assuming the ID is a byte slice and converting it to an integer
-		docID := int(binary.BigEndian.Uint64(id[:8]))
-		fmt.Printf("RESULT: %s\n", sentences[docID-1])
-	}
-	fmt.Println("================")
-}
-
 func insertAllDocuments(muopdbClient muopdbclient.MuopDbClient, collectionName string, embeddings [][]float32) error {
-	log.Println("Inserting documents...")
 	var (
 		batchSize       = 100_000
 		totalEmbeddings = len(embeddings)
@@ -168,6 +85,7 @@ func insertAllDocuments(muopdbClient muopdbclient.MuopDbClient, collectionName s
 	log.Printf("Finished inserting %d embeddings in %v", totalEmbeddings, elapsed)
 	return nil
 }
+
 func getEmbedding(client *genai.Client, model, prompt string) ([]float32, error) {
 	embedding := client.EmbeddingModel(model)
 	ctx := context.Background()
@@ -178,3 +96,103 @@ func getEmbedding(client *genai.Client, model, prompt string) ([]float32, error)
 	return res.Embedding.Values, nil
 }
 
+func demoInsertEmbedding(cfg configs.Config, outputEmbeddingFile string) error {
+	//Configure logging
+	conn, err := createGRPCClientConn(fmt.Sprintf("%s:%d", cfg.MuopDBConfig.Host, cfg.MuopDBConfig.Port))
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	muopdbClient := muopdbclient.NewClient(conn)
+
+	//// Load the embeddings from the .gob file
+	embeddings, err := loadEmbeddings(outputEmbeddingFile)
+	if err != nil {
+		return err
+	}
+
+	// create collection
+	err = muopdbClient.CreateCollection(
+		context.TODO(),
+		"test-collection-1",
+	)
+
+	if err != nil {
+		return err
+	}
+
+	// Insert the embeddings into MuopDB
+	return insertAllDocuments(muopdbClient, "test-collection-1", embeddings)
+}
+
+func demoSearch(cfg configs.Config) error {
+	conn, err := createGRPCClientConn(fmt.Sprintf("%s:%d", cfg.MuopDBConfig.Host, cfg.MuopDBConfig.Port))
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	muopdbClient := muopdbclient.NewClient(conn)
+
+	geminiClient, err := createGeminiClient(cfg)
+	if err != nil {
+		log.Fatalf("Error creating Gemini client: %v", err)
+	}
+
+	query := "Futuristic Cities"
+	queryVector, err := getEmbedding(geminiClient, embeddingModelName, query)
+	if err != nil {
+		return err
+	}
+
+	// Read back the raw data to print the responses
+	sentences, err := readSentences(inputSample)
+	if err != nil {
+		return err
+	}
+
+	start := time.Now()
+	searchResponse, err := muopdbClient.Search(context.TODO(), muopdbclient.SearchRequest{
+		CollectionName: "test-collection-1",
+		Vector:         queryVector,
+		TopK:           5,
+		EfConstruction: 100,
+		RecordMetrics:  false,
+		UserIds:        [][]byte{make([]byte, 16)},
+	})
+
+	end := time.Now()
+
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("Time taken for search: %v seconds\n", end.Sub(start).Seconds())
+
+	fmt.Printf("Number of results: %d\n", len(searchResponse.DocIds))
+	fmt.Println("================")
+	for _, id := range searchResponse.DocIds {
+		// Assuming the ID is a byte slice and converting it to an integer
+		docID := int(binary.BigEndian.Uint64(id[:8]))
+		fmt.Printf("RESULT: %s\n", sentences[docID-1])
+	}
+	fmt.Println("================")
+	return nil
+}
+func main() {
+	cfg, err := configs.NewConfig("")
+	if err != nil {
+		log.Fatalf("Error loading config: %v", err)
+	}
+
+	//err = demoInsertEmbedding(cfg, outputSample)
+	//if err != nil {
+	//	log.Fatalf("Error inserting embedding: %v\n", err)
+	//}
+
+	//err = demoSearch(cfg)
+	//if err != nil {
+	//	log.Fatalf("Error searching for document: %d\n", err)
+	//}
+}
