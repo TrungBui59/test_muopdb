@@ -15,6 +15,29 @@ type muopDBClient struct {
 	aggregatorClient pb.AggregatorClient
 }
 
+func (m muopDBClient) InsertPacked(ctx context.Context, request InsertPackedRequest) (InsertPackedResponse, error) {
+	rpcRequest := pb.InsertRequest{
+		CollectionName: request.CollectionName,
+	}
+
+	response, err := m.indexClient.Insert(ctx, &rpcRequest)
+	if err != nil {
+		return InsertPackedResponse{}, err
+	}
+
+	_, err = m.Flush(ctx, FlushRequest{
+		CollectionName: request.CollectionName,
+	})
+
+	if err != nil {
+		return InsertPackedResponse{}, err
+	}
+
+	return InsertPackedResponse{
+		NumDocsInserted: response.NumDocsInserted,
+	}, nil
+}
+
 func (m muopDBClient) Close() error {
 	return m.conn.Close()
 }
@@ -46,7 +69,7 @@ func (m muopDBClient) Insert(ctx context.Context, request InsertRequest) (Insert
 	}
 
 	return InsertResponse{
-		DocIds: mergeIds(response.InsertedLowIds, response.InsertedHighIds),
+		NumDocsInserted: response.NumDocsInserted,
 	}, nil
 }
 
@@ -54,8 +77,8 @@ func splitIDs(ids [][]byte) ([]uint64, []uint64) {
 	var lowIds []uint64
 	var highIds []uint64
 	for i := 0; i < len(ids); i++ {
-		low := binary.BigEndian.Uint64(ids[i][:8])
-		high := binary.BigEndian.Uint64(ids[i][8:])
+		low := binary.LittleEndian.Uint64(ids[i][:8])
+		high := binary.LittleEndian.Uint64(ids[i][8:])
 		lowIds = append(lowIds, low)
 		highIds = append(highIds, high)
 	}
@@ -76,8 +99,8 @@ func mergeIds(lowIds, highIds []uint64) [][]byte {
 	for i := 0; i < len(lowIds); i++ {
 		lowBytes := make([]byte, 8)
 		highBytes := make([]byte, 8)
-		binary.BigEndian.PutUint64(lowBytes, lowIds[i])
-		binary.BigEndian.PutUint64(highBytes, highIds[i])
+		binary.LittleEndian.PutUint64(lowBytes, lowIds[i])
+		binary.LittleEndian.PutUint64(highBytes, highIds[i])
 		id := append(lowBytes, highBytes...)
 		ids = append(ids, id)
 	}
@@ -126,6 +149,7 @@ func (m muopDBClient) Flush(ctx context.Context, request FlushRequest) (FlushRes
 type MuopDbClient interface {
 	CreateCollection(ctx context.Context, collectionName string) error
 	Insert(ctx context.Context, request InsertRequest) (InsertResponse, error)
+	InsertPacked(ctx context.Context, request InsertPackedRequest) (InsertPackedResponse, error)
 	Search(ctx context.Context, request SearchRequest) (SearchResponse, error)
 	Flush(ctx context.Context, request FlushRequest) (FlushResponse, error)
 	Close() error
@@ -143,7 +167,7 @@ func main() {
 	ids := make([][]byte, 100)
 	for i := range ids {
 		ids[i] = make([]byte, 16)
-		binary.BigEndian.PutUint64(ids[i], uint64(i))
+		binary.LittleEndian.PutUint64(ids[i], uint64(i))
 	}
 
 	lowIds, highIds := splitIDs(ids)

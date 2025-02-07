@@ -2,8 +2,8 @@ package main
 
 import (
 	"context"
-	"encoding/binary"
 	"fmt"
+	pb "github.com/TrungBui59/test_muopdb/api/pb"
 	"github.com/TrungBui59/test_muopdb/internal/configs"
 	"github.com/TrungBui59/test_muopdb/internal/muopdbclient"
 	"github.com/google/generative-ai-go/genai"
@@ -15,6 +15,7 @@ var (
 	inputSample        = "/home/trungbui/test_muopdb/samples/100_sentence.txt"
 	outputSample       = "/home/trungbui/test_muopdb/samples/100_sentence_embedding.gob"
 	embeddingModelName = "text-embedding-004"
+	collectionName     = "test-collection-20"
 )
 
 func demoGenerateEmbedding(inputSampleFile, outputSampleFile, embeddingModel string,
@@ -38,10 +39,17 @@ func demoGenerateEmbedding(inputSampleFile, outputSampleFile, embeddingModel str
 
 func insertAllDocuments(muopdbClient muopdbclient.MuopDbClient, collectionName string, embeddings [][]float32) error {
 	var (
-		batchSize       = 100_000
+		batchSize       = 5
 		totalEmbeddings = len(embeddings)
 		startIdx        = 0
 	)
+	conn, err := createGRPCClientConn(fmt.Sprintf("localhost:9002"))
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	client := pb.NewIndexServerClient(conn)
 
 	startTime := time.Now()
 	for startIdx < totalEmbeddings {
@@ -49,30 +57,45 @@ func insertAllDocuments(muopdbClient muopdbclient.MuopDbClient, collectionName s
 		batchEmbeddings := embeddings[startIdx:endIdx]
 
 		// Generate sequential IDs for the batch
-		ids := make([][]byte, len(batchEmbeddings))
-		for i := range ids {
-			ids[i] = make([]byte, 16)
-			binary.BigEndian.PutUint64(ids[i], uint64(i))
-		}
+		//ids := make([][]byte, len(batchEmbeddings))
+		//for i := range ids {
+		//	ids[i] = make([]byte, 16)
+		//	binary.LittleEndian.PutUint64(ids[i], uint64(i))
+		//}
 
 		// Flatten the batch embeddings into a single vector
 		var vectors []float32
-		for _, embedding := range batchEmbeddings {
+		var ids []uint64
+		for idx, embedding := range batchEmbeddings {
 			vectors = append(vectors, embedding...)
-		}
+			ids = append(ids, uint64(startIdx+idx))
 
-		fmt.Printf("Vector Size: %d\n", len(vectors))
+		}
 
 		// Create the insert request
-		request := muopdbclient.InsertRequest{
+		//request := muopdbclient.InsertRequest{
+		//	CollectionName: collectionName,
+		//	DocIds:         ids,
+		//	Vectors:        vectors,
+		//	UserIds:        make([][]byte, 0),
+		//}
+
+		request := pb.InsertRequest{
 			CollectionName: collectionName,
-			DocIds:         ids,
+			LowIds:         ids,
+			HighIds:        make([]uint64, len(ids)),
 			Vectors:        vectors,
-			UserIds:        make([][]byte, 0),
+			LowUserIds:     []uint64{0},
+			HighUserIds:    []uint64{0},
 		}
 
-		// Send the insert request
-		if _, err := muopdbClient.Insert(context.Background(), request); err != nil {
+		//Send the insert request
+		//if _, err := muopdbClient.Insert(context.Background(), request); err != nil {
+		//	log.Printf("Error inserting batch [%d:%d]: %v", startIdx, endIdx, err)
+		//	return err
+		//}
+
+		if _, err := client.Insert(context.Background(), &request); err != nil {
 			log.Printf("Error inserting batch [%d:%d]: %v", startIdx, endIdx, err)
 			return err
 		}
@@ -83,6 +106,11 @@ func insertAllDocuments(muopdbClient muopdbclient.MuopDbClient, collectionName s
 
 	elapsed := time.Since(startTime)
 	log.Printf("Finished inserting %d embeddings in %v", totalEmbeddings, elapsed)
+
+	client.Flush(context.TODO(), &pb.FlushRequest{
+		CollectionName: collectionName,
+	})
+
 	return nil
 }
 
@@ -96,7 +124,7 @@ func getEmbedding(client *genai.Client, model, prompt string) ([]float32, error)
 	return res.Embedding.Values, nil
 }
 
-func demoInsertEmbedding(cfg configs.Config, outputEmbeddingFile string) error {
+func demoInsertEmbedding(cfg configs.Config, collectionName, outputEmbeddingFile string) error {
 	//Configure logging
 	conn, err := createGRPCClientConn(fmt.Sprintf("%s:%d", cfg.MuopDBConfig.Host, cfg.MuopDBConfig.Port))
 	if err != nil {
@@ -112,10 +140,10 @@ func demoInsertEmbedding(cfg configs.Config, outputEmbeddingFile string) error {
 		return err
 	}
 
-	// create collection
+	//create collection
 	err = muopdbClient.CreateCollection(
 		context.TODO(),
-		"test-collection-1",
+		collectionName,
 	)
 
 	if err != nil {
@@ -123,24 +151,32 @@ func demoInsertEmbedding(cfg configs.Config, outputEmbeddingFile string) error {
 	}
 
 	// Insert the embeddings into MuopDB
-	return insertAllDocuments(muopdbClient, "test-collection-1", embeddings)
+	return insertAllDocuments(muopdbClient, collectionName, embeddings)
 }
 
-func demoSearch(cfg configs.Config) error {
-	conn, err := createGRPCClientConn(fmt.Sprintf("%s:%d", cfg.MuopDBConfig.Host, cfg.MuopDBConfig.Port))
+func demoSearch(cfg configs.Config, collectionName string) error {
+	//conn, err := createGRPCClientConn(fmt.Sprintf("%s:%d", cfg.MuopDBConfig.Host, cfg.MuopDBConfig.Port))
+	//if err != nil {
+	//	return err
+	//}
+	//defer conn.Close()
+	//
+	//muopdbClient := muopdbclient.NewClient(conn)
+
+	conn, err := createGRPCClientConn(fmt.Sprintf("localhost:9002"))
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
 
-	muopdbClient := muopdbclient.NewClient(conn)
+	client := pb.NewIndexServerClient(conn)
 
 	geminiClient, err := createGeminiClient(cfg)
 	if err != nil {
 		log.Fatalf("Error creating Gemini client: %v", err)
 	}
 
-	query := "Futuristic Cities"
+	query := "Space Science Fiction"
 	queryVector, err := getEmbedding(geminiClient, embeddingModelName, query)
 	if err != nil {
 		return err
@@ -153,13 +189,23 @@ func demoSearch(cfg configs.Config) error {
 	}
 
 	start := time.Now()
-	searchResponse, err := muopdbClient.Search(context.TODO(), muopdbclient.SearchRequest{
-		CollectionName: "test-collection-1",
+	//searchResponse, err := muopdbClient.Search(context.TODO(), muopdbclient.SearchRequest{
+	//	CollectionName: collectionName,
+	//	Vector:         queryVector,
+	//	TopK:           5,
+	//	EfConstruction: 100,
+	//	RecordMetrics:  false,
+	//	UserIds:        [][]byte{make([]byte, 16)},
+	//})
+
+	searchResponse, err := client.Search(context.TODO(), &pb.SearchRequest{
+		CollectionName: collectionName,
 		Vector:         queryVector,
 		TopK:           5,
 		EfConstruction: 100,
 		RecordMetrics:  false,
-		UserIds:        [][]byte{make([]byte, 16)},
+		LowUserIds:     []uint64{0},
+		HighUserIds:    []uint64{0},
 	})
 
 	end := time.Now()
@@ -170,12 +216,12 @@ func demoSearch(cfg configs.Config) error {
 
 	fmt.Printf("Time taken for search: %v seconds\n", end.Sub(start).Seconds())
 
-	fmt.Printf("Number of results: %d\n", len(searchResponse.DocIds))
+	fmt.Printf("Number of results: %d\n", len(searchResponse.LowIds))
 	fmt.Println("================")
-	for _, id := range searchResponse.DocIds {
+	for _, id := range searchResponse.LowIds {
 		// Assuming the ID is a byte slice and converting it to an integer
-		docID := int(binary.BigEndian.Uint64(id[:8]))
-		fmt.Printf("RESULT: %s\n", sentences[docID-1])
+		docID := int(id)
+		fmt.Printf("RESULT: %s\n", sentences[docID])
 	}
 	fmt.Println("================")
 	return nil
@@ -186,13 +232,13 @@ func main() {
 		log.Fatalf("Error loading config: %v", err)
 	}
 
-	//err = demoInsertEmbedding(cfg, outputSample)
+	//err = demoInsertEmbedding(cfg, collectionName, outputSample)
 	//if err != nil {
 	//	log.Fatalf("Error inserting embedding: %v\n", err)
 	//}
 
-	//err = demoSearch(cfg)
-	//if err != nil {
-	//	log.Fatalf("Error searching for document: %d\n", err)
-	//}
+	err = demoSearch(cfg, collectionName)
+	if err != nil {
+		log.Fatalf("Error searching for document: %d\n", err)
+	}
 }

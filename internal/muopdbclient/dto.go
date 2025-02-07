@@ -23,7 +23,7 @@ type InsertRequest struct {
 }
 
 type InsertResponse struct {
-	DocIds [][]byte
+	NumDocsInserted uint32
 }
 
 type FlushRequest struct {
@@ -32,4 +32,14 @@ type FlushRequest struct {
 
 type FlushResponse struct {
 	FlushedSegments []string
+}
+
+type InsertPackedRequest struct {
+	CollectionName string
+	DocIds         [][]byte
+	Vectors        []byte
+	UserIds        [][]byte
+}
+type InsertPackedResponse struct {
+	NumDocsInserted uint32
 }
