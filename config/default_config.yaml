@@ -1,3 +1,10 @@
 muopdb:
   host: "localhost"
-  port: 50051
+  port: 9002
+
+http:
+    host: "localhost"
+    port: 8080
+
+gemini:
+  api_key: "<API_key>"
