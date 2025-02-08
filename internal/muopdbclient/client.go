@@ -52,8 +52,16 @@ func (m muopDBClient) CreateCollection(ctx context.Context, collectionName strin
 }
 
 func (m muopDBClient) Insert(ctx context.Context, request InsertRequest) (InsertResponse, error) {
+	lowDocIds, highDocIds := splitIDs(paddingIds(request.DocIds))
+	lowUserIds, highUserIds := splitIDs(paddingIds(request.UserIds))
+
 	rpcRequest := pb.InsertRequest{
 		CollectionName: request.CollectionName,
+		LowIds:         lowDocIds,
+		HighIds:        highDocIds,
+		LowUserIds:     lowUserIds,
+		HighUserIds:    highUserIds,
+		Vectors:        request.Vectors,
 	}
 
 	response, err := m.indexClient.Insert(ctx, &rpcRequest)
