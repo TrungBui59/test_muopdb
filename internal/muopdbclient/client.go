@@ -54,8 +54,8 @@ func splitIDs(ids [][]byte) ([]uint64, []uint64) {
 	var lowIds []uint64
 	var highIds []uint64
 	for i := 0; i < len(ids); i++ {
-		low := binary.BigEndian.Uint64(ids[i][:8])
-		high := binary.BigEndian.Uint64(ids[i][8:])
+		low := binary.LittleEndian.Uint64(ids[i][:8])
+		high := binary.LittleEndian.Uint64(ids[i][8:])
 		lowIds = append(lowIds, low)
 		highIds = append(highIds, high)
 	}
@@ -76,8 +76,8 @@ func mergeIds(lowIds, highIds []uint64) [][]byte {
 	for i := 0; i < len(lowIds); i++ {
 		lowBytes := make([]byte, 8)
 		highBytes := make([]byte, 8)
-		binary.BigEndian.PutUint64(lowBytes, lowIds[i])
-		binary.BigEndian.PutUint64(highBytes, highIds[i])
+		binary.LittleEndian.PutUint64(lowBytes, lowIds[i])
+		binary.LittleEndian.PutUint64(highBytes, highIds[i])
 		id := append(lowBytes, highBytes...)
 		ids = append(ids, id)
 	}
@@ -143,7 +143,7 @@ func main() {
 	ids := make([][]byte, 100)
 	for i := range ids {
 		ids[i] = make([]byte, 16)
-		binary.BigEndian.PutUint64(ids[i], uint64(i))
+		binary.LittleEndian.PutUint64(ids[i], uint64(i))
 	}
 
 	lowIds, highIds := splitIDs(ids)
