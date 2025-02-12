@@ -15,6 +15,29 @@ type muopDBClient struct {
 	aggregatorClient pb.AggregatorClient
 }
 
+func (m muopDBClient) InsertPacked(ctx context.Context, request InsertPackedRequest) (InsertPackedResponse, error) {
+	rpcRequest := pb.InsertRequest{
+		CollectionName: request.CollectionName,
+	}
+
+	response, err := m.indexClient.Insert(ctx, &rpcRequest)
+	if err != nil {
+		return InsertPackedResponse{}, err
+	}
+
+	_, err = m.Flush(ctx, FlushRequest{
+		CollectionName: request.CollectionName,
+	})
+
+	if err != nil {
+		return InsertPackedResponse{}, err
+	}
+
+	return InsertPackedResponse{
+		NumDocsInserted: response.NumDocsInserted,
+	}, nil
+}
+
 func (m muopDBClient) Close() error {
 	return m.conn.Close()
 }
@@ -29,8 +52,16 @@ func (m muopDBClient) CreateCollection(ctx context.Context, collectionName strin
 }
 
 func (m muopDBClient) Insert(ctx context.Context, request InsertRequest) (InsertResponse, error) {
+	lowDocIds, highDocIds := splitIDs(paddingIds(request.DocIds))
+	lowUserIds, highUserIds := splitIDs(paddingIds(request.UserIds))
+
 	rpcRequest := pb.InsertRequest{
 		CollectionName: request.CollectionName,
+		LowIds:         lowDocIds,
+		HighIds:        highDocIds,
+		LowUserIds:     lowUserIds,
+		HighUserIds:    highUserIds,
+		Vectors:        request.Vectors,
 	}
 
 	response, err := m.indexClient.Insert(ctx, &rpcRequest)
@@ -46,7 +77,7 @@ func (m muopDBClient) Insert(ctx context.Context, request InsertRequest) (Insert
 	}
 
 	return InsertResponse{
-		DocIds: mergeIds(response.InsertedLowIds, response.InsertedHighIds),
+		NumDocsInserted: response.NumDocsInserted,
 	}, nil
 }
 
@@ -126,6 +157,7 @@ func (m muopDBClient) Flush(ctx context.Context, request FlushRequest) (FlushRes
 type MuopDbClient interface {
 	CreateCollection(ctx context.Context, collectionName string) error
 	Insert(ctx context.Context, request InsertRequest) (InsertResponse, error)
+	InsertPacked(ctx context.Context, request InsertPackedRequest) (InsertPackedResponse, error)
 	Search(ctx context.Context, request SearchRequest) (SearchResponse, error)
 	Flush(ctx context.Context, request FlushRequest) (FlushResponse, error)
 	Close() error

@@ -1,7 +1,7 @@
 syntax = "proto3";
 package muopdb;
 
-option go_package = "./api/pb";
+option go_package = ".";
 
 service Aggregator {
   rpc Get(GetRequest) returns (GetResponse) {}
@@ -72,7 +72,7 @@ message CompactSegmentsResponse {
 
 message CreateCollectionRequest {
   string collection_name = 1;
-  
+
   // Collection configuration parameters. The default values for these are defined
   // in `rs/config/src/collection.rs`. You just need to override those that differ
   // from the default values.
@@ -99,6 +99,8 @@ message CreateCollectionRequest {
   optional float posting_list_kmeans_unbalanced_penalty = 23;
   optional bool reindex = 24;
   optional uint64 wal_file_size = 25;
+  optional uint64 max_pending_ops = 26;
+  optional uint64 max_time_to_flush_ms = 27;
 }
 
 message CreateCollectionResponse {
@@ -110,7 +112,7 @@ message SearchRequest {
   uint32 top_k = 3;
   uint32 ef_construction = 5;
 
-  // For metrics, don't set by default. 
+  // For metrics, don't set by default.
   // This has some performance impact on the query.
   bool record_metrics = 4;
 
@@ -147,7 +149,7 @@ message InsertRequest {
   // List of higher 64 bits of the doc_ids
   repeated uint64 high_ids = 5;
 
-  // Flattened vector. If the dimension is 10, 
+  // Flattened vector. If the dimension is 10,
   // and the number of vectors is 5,
   // then this list should have 50 elements.
   repeated float vectors = 3;
@@ -160,11 +162,8 @@ message InsertRequest {
 }
 
 message InsertResponse {
-  // List of lower 64 bits of the doc_ids
-  repeated uint64 inserted_low_ids = 1;
-
-  // List of higher 64 bits of the doc_ids
-  repeated uint64 inserted_high_ids = 2;
+  // The number of docs that were inserted.
+  uint32 num_docs_inserted = 3;
 }
 
 message FlushRequest {
@@ -180,16 +179,16 @@ message FlushResponse {
 message InsertPackedRequest {
   string collection_name = 1;
 
-  // List of lower 64 bits of the doc_ids. 
+  // List of lower 64 bits of the doc_ids.
   // These ids should be packed with 8 bytes per number.
   bytes low_ids = 2;
 
-  // List of lower 64 bits of the doc_ids. 
+  // List of lower 64 bits of the doc_ids.
   // These ids should be packed with 8 bytes per number.
   bytes high_ids = 5;
 
-  // Packed flattened vector. If the dimension is 10, 
-  // and the number of vectors is 5, then this list should 
+  // Packed flattened vector. If the dimension is 10,
+  // and the number of vectors is 5, then this list should
   // have 50 elements, packed with 8 bytes per number.
   bytes vectors = 3;
 
@@ -198,4 +197,6 @@ message InsertPackedRequest {
 }
 
 message InsertPackedResponse {
+  // The number of docs that were inserted.
+  uint32 num_docs_inserted = 1;
 }
